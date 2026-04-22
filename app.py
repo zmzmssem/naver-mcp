@@ -1,12 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 import requests
 import os
+import json
 
 app = FastAPI()
 
-# 여기에 본인 네이버 API 정보를 넣으세요
-NAVER_CLIENT_ID = os.getenv("v2DZ1hkm3QEWF_j3xm8M")
-NAVER_CLIENT_SECRET = os.getenv("rxpeP32oSN")
+NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
+NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 
 @app.get("/")
@@ -53,50 +53,87 @@ def search_news(query: str):
         "query": query,
         "results": results
     }
-@app.post("/mcp")
-async def mcp_endpoint(request: dict):
-    method = request.get("method")
-    params = request.get("params", {})
 
-    # MCP 도구 목록 요청
-    if method == "tools/list":
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request):
+    body = await request.json()
+
+    req_id = body.get("id")
+    method = body.get("method")
+    params = body.get("params", {})
+
+    def success(result):
         return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": result
+        }
+
+    def error(code, message, data=None):
+        payload = {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {
+                "code": code,
+                "message": message
+            }
+        }
+        if data is not None:
+            payload["error"]["data"] = data
+        return payload
+
+    if method == "initialize":
+        return success({
+            "protocolVersion": "2025-03-26",
+            "capabilities": {
+                "tools": {}
+            },
+            "serverInfo": {
+                "name": "naver-mcp",
+                "version": "1.0.0"
+            }
+        })
+
+    if method == "notifications/initialized":
+        return {"jsonrpc": "2.0", "result": {}}
+
+    if method == "tools/list":
+        return success({
             "tools": [
                 {
                     "name": "search_naver_news",
-                    "description": "네이버 뉴스 검색",
-                    "input_schema": {
+                    "description": "Search Naver news by keyword",
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "query": {
                                 "type": "string",
-                                "description": "검색어"
+                                "description": "Search keyword"
                             }
                         },
                         "required": ["query"]
                     }
                 }
             ]
-        }
+        })
 
-    # MCP 도구 실행 요청
-    elif method == "tools/call":
+    if method == "tools/call":
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
 
         if tool_name == "search_naver_news":
-            query = arguments.get("query")
-
-            # 기존 함수 재사용
+            query = arguments.get("query", "")
             result = search_news(query)
-
-            return {
+            return success({
                 "content": [
                     {
                         "type": "text",
-                        "text": str(result)
+                        "text": json.dumps(result, ensure_ascii=False)
                     }
                 ]
-            }
+            })
 
-    return {"error": "지원하지 않는 요청"}
+        return error(-32601, "Tool not found", {"tool": tool_name})
+
+    return error(-32601, "Method not found", {"method": method})

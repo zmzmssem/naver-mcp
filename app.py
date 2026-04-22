@@ -1,10 +1,11 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 import requests
 import os
 import json
 
 app = FastAPI()
 
+# Render 등의 환경변수에서 읽음
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
@@ -83,6 +84,11 @@ async def mcp_endpoint(request: Request):
             payload["error"]["data"] = data
         return payload
 
+    # notification은 응답 본문 없이 종료
+    if isinstance(method, str) and method.startswith("notifications/"):
+        return Response(status_code=204)
+
+    # MCP initialize
     if method == "initialize":
         return success({
             "protocolVersion": "2025-03-26",
@@ -95,9 +101,7 @@ async def mcp_endpoint(request: Request):
             }
         })
 
-    if method == "notifications/initialized":
-        return {"jsonrpc": "2.0", "result": {}}
-
+    # 도구 목록
     if method == "tools/list":
         return success({
             "tools": [
@@ -118,6 +122,7 @@ async def mcp_endpoint(request: Request):
             ]
         })
 
+    # 도구 실행
     if method == "tools/call":
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
@@ -125,6 +130,7 @@ async def mcp_endpoint(request: Request):
         if tool_name == "search_naver_news":
             query = arguments.get("query", "")
             result = search_news(query)
+
             return success({
                 "content": [
                     {
